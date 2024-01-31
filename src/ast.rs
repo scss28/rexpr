@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::operator::Operator;
 
 #[derive(Clone)]
@@ -46,6 +48,19 @@ impl<T: Clone> ASTNode<T> {
                 left,
                 right,
             } => operator.evaluate(left.evaluate(), right.evaluate()),
+        }
+    }
+}
+
+impl<T: Debug> Debug for ASTNode<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Value(value) => write!(f, "{:?}", value),
+            Self::Expression {
+                operator,
+                left,
+                right,
+            } => write!(f, "{:?} -> [ {:?} | {:?} ]", operator, left, right),
         }
     }
 }

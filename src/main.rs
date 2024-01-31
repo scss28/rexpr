@@ -42,22 +42,32 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         print!("\x1b[96m| > \x1b[0m");
         io::stdout().flush()?;
 
-        let mut expression = String::new();
-        io::stdin().read_line(&mut expression)?;
-        let trimmed = expression.trim();
-        if trimmed == "q" {
+        let expr = {
+            let mut expr = String::new();
+            io::stdin().read_line(&mut expr)?;
+            expr.trim_end().to_owned()
+        };
+
+        if expr == "q" {
             break;
         }
 
-        match parser::parse_expression(trimmed) {
-            Ok(ast) => println!("\x1b[94m| =\x1b[0m {}\n", ast.evaluate()),
+        match parser::parse_expression(&expr) {
+            Ok(ast) => {
+                #[cfg(debug_assertions)]
+                {
+                    println!("\x1b[94m|\x1b[0m {:?}", ast);
+                }
+
+                println!("\x1b[94m| =\x1b[0m {}\n", ast.evaluate())
+            }
             Err(err) => {
                 print!("\x1b[93m    ");
                 for _ in 0..err.0 {
                     print!(" ");
                 }
 
-                for _ in 0..(trimmed.len() - err.0) {
+                for _ in 0..(expr.len() - err.0) {
                     print!("^");
                 }
 

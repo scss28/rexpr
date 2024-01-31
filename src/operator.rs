@@ -1,4 +1,4 @@
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Operator<T> {
     priority: usize,
     evaluation_func: fn(T, T) -> T,
