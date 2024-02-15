@@ -27,18 +27,16 @@ pub fn parse_expression(str: &str) -> Result<ASTNode<f64>, ParseError> {
 
 /// Returns the first non-white-space character index.
 fn next_not_whitespace(arr: &[char], mut idx: usize) -> usize {
-    loop {
-        let Some(char) = arr.get(idx) else {
-            break arr.len();
-        };
-
+    while let Some(char) = arr.get(idx) {
         if char.is_whitespace() {
             idx += 1;
             continue;
         }
 
-        break idx;
+        return idx;
     }
+
+    return arr.len();
 }
 
 /// Parses a "value" ie. either `f64` or recursively an expression inside parenthesis.
@@ -81,12 +79,18 @@ fn parse_ast(arr: &[char], idx: &mut usize) -> Result<ASTNode<f64>, ParseError> 
         return Ok(ASTNode::Value(value));
     }
 
+    match arr.get(*idx) {
+        Some(char) if *char == '-' || char.is_ascii_digit() => (),
+        _ => return Err(ParseError(*idx, "Expected a number, found nothing.")),
+    }
+
+    *idx += 1;
     loop {
         let Some(char) = arr.get(*idx) else {
             break;
         };
 
-        if !char.is_numeric() && *char != '.' && *char != '-' {
+        if !char.is_ascii_digit() && *char != '.' {
             break;
         }
 
