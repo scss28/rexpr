@@ -1,43 +1,38 @@
 use std::{
-    env, error,
+    error,
     io::{self, Write},
 };
 
-mod ast;
-mod operator;
+use clap::Parser;
+
+mod binary_operator;
+mod expression_tree;
 mod parser;
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+/// A simple app used to evaluate mathematical expressions.
+/// Supported operators: +, -, *, /, ** (power), %, ^, |, &
+struct Args {
+    /// Expression to be evaluated (optional)
+    expression: Option<String>,
+}
+
 fn main() -> Result<(), Box<dyn error::Error>> {
-    if env::args().len() > 1 {
-        let expression = env::args().skip(1).map(|str| str + " ").collect::<String>();
-        match parser::parse_expression(&expression) {
-            Ok(ast) => println!("\x1b[94m| =\x1b[0m {}\n", ast.evaluate()),
+    let args = Args::parse();
+    if let Some(expression) = args.expression {
+        match parser::parse_expression(expression.as_bytes()) {
+            Ok(ast) => println!("{}", ast.evaluate()),
             Err(err) => {
-                for (i, char) in expression.chars().enumerate() {
-                    if i == err.0 {
-                        print!("\x1b[93m");
-                    }
-
-                    print!("{char}");
-                }
-
-                println!();
-                for _ in 0..err.0 {
-                    print!(" ");
-                }
-
-                for _ in 0..(expression.len() - err.0) {
-                    print!("^");
-                }
-
-                println!("\n|\x1b[0m {}", err.1);
+                std::io::stderr()
+                    .write_all(format!("{} (at index = {})", err.1, err.0).as_bytes())?;
             }
         }
 
         return Ok(());
     }
 
-    println!("| \x1b[90mInput a math expression (q -> exit).\x1b[0m");
+    println!("| \x1b[90mInput a math expression (\"q\" to exit).\x1b[0m");
     loop {
         print!("\x1b[96m| > \x1b[0m");
         io::stdout().flush()?;
@@ -52,7 +47,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             break;
         }
 
-        match parser::parse_expression(&expr) {
+        match parser::parse_expression(expr.as_bytes()) {
             Ok(ast) => {
                 #[cfg(debug_assertions)]
                 {

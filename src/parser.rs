@@ -1,34 +1,30 @@
-use crate::{ast::ASTNode, operator::Operator};
+use crate::{binary_operator::BinaryOperator, expression_tree::ExpressionTree};
 
 #[derive(Debug, Clone)]
-pub struct ParseError(pub usize, pub &'static str);
+pub struct ParseError(pub usize, pub String);
 
-pub fn parse_expression(str: &str) -> Result<ASTNode<f64>, ParseError> {
-    let arr = str.chars().collect::<Box<[char]>>();
-    let mut idx = next_not_whitespace(&arr, 0usize);
-
-    let left = parse_ast(&arr, &mut idx)?;
-    if idx == arr.len() {
-        return Ok(left);
+pub fn parse_expression(bytes: &[u8]) -> Result<ExpressionTree<f64, BinaryOperator>, ParseError> {
+    let mut idx = next_not_whitespace(bytes, 0usize);
+    let mut tree = parse_tree(bytes, &mut idx)?;
+    if idx == bytes.len() {
+        return Ok(tree);
     }
 
-    let mut ast = ASTNode::new_expression(
-        left,
-        parse_operator(&arr, &mut idx)?,
-        parse_ast(&arr, &mut idx)?,
-    );
+    while idx < bytes.len() {
+        let operator = BinaryOperator::parse_next(bytes, &mut idx)
+            .ok_or(ParseError(idx, String::from("Expected an operator.")))?;
 
-    while idx < arr.len() {
-        ast.append(parse_operator(&arr, &mut idx)?, parse_ast(&arr, &mut idx)?);
+        idx = next_not_whitespace(bytes, idx);
+        tree.append(operator, parse_tree(bytes, &mut idx)?);
     }
 
-    Ok(ast)
+    Ok(tree)
 }
 
 /// Returns the first non-white-space character index.
-fn next_not_whitespace(arr: &[char], mut idx: usize) -> usize {
-    while let Some(char) = arr.get(idx) {
-        if char.is_whitespace() {
+fn next_not_whitespace(arr: &[u8], mut idx: usize) -> usize {
+    while let Some(byte) = arr.get(idx) {
+        if byte.is_ascii_whitespace() {
             idx += 1;
             continue;
         }
@@ -36,102 +32,88 @@ fn next_not_whitespace(arr: &[char], mut idx: usize) -> usize {
         return idx;
     }
 
-    return arr.len();
+    arr.len()
 }
 
 /// Parses a "value" ie. either `f64` or recursively an expression inside parenthesis.
 /// Then moves `idx` to another non-white-space character.
-fn parse_ast(arr: &[char], idx: &mut usize) -> Result<ASTNode<f64>, ParseError> {
-    if *idx >= arr.len() {
-        return Err(ParseError(*idx, "Expected a number, found nothing."));
+fn parse_tree(
+    bytes: &[u8],
+    idx: &mut usize,
+) -> Result<ExpressionTree<f64, BinaryOperator>, ParseError> {
+    if *idx >= bytes.len() {
+        return Err(ParseError(
+            *idx,
+            String::from("Expected a number, found nothing."),
+        ));
     }
 
     let start = *idx;
-    if arr[*idx] == '(' {
+    if bytes[*idx] == b'(' {
         let mut open_count = 1usize;
         loop {
             *idx += 1;
-            let Some(char) = arr.get(*idx) else {
-                return Err(ParseError(start, "Mismatched parenthesis."));
+            let Some(byte) = bytes.get(*idx) else {
+                return Err(ParseError(start, String::from("Mismatched parenthesis.")));
             };
 
-            match *char {
-                ')' => {
+            match *byte {
+                b')' => {
                     open_count -= 1usize;
                     if open_count == 0 {
                         break;
                     }
                 }
-                '(' => {
+                b'(' => {
                     open_count += 1;
                 }
                 _ => (),
             }
         }
 
-        // Early evaluation: ASTNode doesn't work well with parenthesis
-        let value = match parse_expression(&arr[(start + 1)..*idx].iter().collect::<String>()) {
-            Ok(ast) => ast.evaluate(),
+        let tree = match parse_expression(&bytes[(start + 1)..*idx]) {
+            Ok(tree) => ExpressionTree::new_enclosed(tree),
             Err(err) => return Err(ParseError(err.0 + start + 1, err.1)),
         };
 
-        *idx = next_not_whitespace(arr, *idx + 1);
-        return Ok(ASTNode::Value(value));
+        *idx = next_not_whitespace(bytes, *idx + 1);
+        return Ok(tree);
     }
 
-    match arr.get(*idx) {
-        Some(char) if *char == '-' || char.is_ascii_digit() => (),
-        _ => return Err(ParseError(*idx, "Expected a number, found nothing.")),
+    match bytes.get(*idx) {
+        Some(byte) if *byte == b'-' || byte.is_ascii_digit() => (),
+        Some(byte) => {
+            return Err(ParseError(
+                *idx,
+                format!("Expected a number, found \"{}\".", *byte as char),
+            ))
+        }
+        None => {
+            return Err(ParseError(
+                *idx,
+                String::from("Expected a number, found nothing."),
+            ))
+        }
     }
 
     *idx += 1;
     loop {
-        let Some(char) = arr.get(*idx) else {
+        let Some(byte) = bytes.get(*idx) else {
             break;
         };
 
-        if !char.is_ascii_digit() && *char != '.' {
+        if !byte.is_ascii_digit() && *byte != b'.' {
             break;
         }
 
         *idx += 1;
     }
 
-    let value = arr[start..*idx]
-        .iter()
-        .collect::<String>()
+    let value = std::str::from_utf8(&bytes[start..*idx])
+        .map_err(|_| ParseError(start, String::from("Non utf-8 characters.")))?
         .parse::<f64>()
-        .map_err(|_| ParseError(start, "Expected a number."))?;
+        .map_err(|_| ParseError(start, String::from("Expected a number.")))?;
 
-    *idx = next_not_whitespace(arr, *idx);
-    Ok(ASTNode::Value(value))
-}
-
-/// Parses a single character operator and moves `idx` to another non-white-space character.
-fn parse_operator(arr: &[char], idx: &mut usize) -> Result<Operator<f64>, ParseError> {
-    fn get_operator(char: char) -> Option<Operator<f64>> {
-        match char {
-            '+' => Some(Operator::new(0, |a, b| a + b)),
-            '-' => Some(Operator::new(0, |a, b| a - b)),
-            '*' => Some(Operator::new(1, |a, b| a * b)),
-            '/' => Some(Operator::new(1, |a, b| a / b)),
-            '%' => Some(Operator::new(1, |a, b| a % b)),
-            '^' => Some(Operator::new(2, |a: f64, b| a.powf(b))),
-            '|' => Some(Operator::new(2, |a, b| (a as i128 | b as i128) as f64)),
-            '&' => Some(Operator::new(2, |a, b| (a as i128 & b as i128) as f64)),
-            _ => None,
-        }
-    }
-
-    let Some(char) = arr.get(*idx) else {
-        return Err(ParseError(*idx, "Expected an operator, found nothing."));
-    };
-
-    match get_operator(*char) {
-        Some(operator) => {
-            *idx = next_not_whitespace(&arr, *idx + 1usize);
-            Ok(operator)
-        }
-        None => Err(ParseError(*idx, "Expected an operator.")),
-    }
+    *idx = next_not_whitespace(bytes, *idx);
+    Ok(ExpressionTree::Value(value))
 }
